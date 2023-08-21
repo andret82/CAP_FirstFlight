@@ -1,0 +1,126 @@
+---
+_schema-version: '3.1'
+ID: CAP_FirstFlight
+version: 1.0.0
+description: 'A simple CAP project.'
+parameters:
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm install --production
+        - npx -p @sap/cds-dk cds build --production
+        - npx rimraf gen/db/src/gen/data
+
+modules:
+  - name: CAP_FirstFlight-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      buildpack: nodejs_buildpack
+    build-parameters:
+      builder: npm-ci
+    provides:
+      - name: srv-api # required by consumers of CAP services (e.g. approuter)
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: CAP_FirstFlight-db
+      - name: CAP_FirstFlight-uaa
+
+  - name: CAP_FirstFlight-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: CAP_FirstFlight-db
+
+  - name: CAP_FirstFlight-destinations
+    type: com.sap.application.content
+    requires:
+      - name: CAP_FirstFlight-uaa
+        parameters:
+          service-key:
+            name: CAP_FirstFlight-uaa-key
+      - name: CAP_FirstFlight-html5-repo-host
+        parameters:
+          service-key:
+            name: CAP_FirstFlight-html5-repo-host-key
+      - name: srv-api
+      - name: CAP_FirstFlight-destination
+        parameters:
+          content-target: true
+    parameters:
+      content:
+        instance:
+          destinations:
+            - Authentication: OAuth2UserTokenExchange
+              Name: CAP_FirstFlight-app-srv
+              TokenServiceInstanceName: CAP_FirstFlight-uaa
+              TokenServiceKeyName: CAP_FirstFlight-uaa-key
+              URL: '~{srv-api/srv-url}'
+              sap.cloud.service: CAP_FirstFlight.service
+            - Name: CAP_FirstFlight-html5-repo-host
+              ServiceInstanceName: CAP_FirstFlight-html5-repo-host
+              ServiceKeyName: CAP_FirstFlight-html5-repo-host-key
+              sap.cloud.service: CAP_FirstFlight.service
+            - Authentication: OAuth2UserTokenExchange
+              Name: CAP_FirstFlight-uaa
+              ServiceInstanceName: CAP_FirstFlight-uaa
+              ServiceKeyName: CAP_FirstFlight-uaa-key
+              sap.cloud.service: CAP_FirstFlight.service
+          existing_destinations_policy: update
+    build-parameters:
+      no-source: true
+
+resources:
+  - name: CAP_FirstFlight-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana # or 'hanatrial' on trial landscapes
+      service-plan: hdi-shared
+
+  # - name: CAP_FirstFlight-auth
+  #   type: org.cloudfoundry.managed-service
+  #   parameters:
+  #     service: xsuaa
+  #     service-plan: application
+  #     path: ./xs-security.json
+  #     config:
+  #       xsappname: CAP_FirstFlight-${org}-${space}
+  #       tenant-mode: dedicated
+
+  - name: CAP_FirstFlight-uaa #XSUAA 서비스 인스턴스의 대상. SAP Launchpad 서비스는 CAP 서비스와 함께 사용할 OAuth 토큰을 변환하는 데 필요함.
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: CAP_FirstFlight-${space} #  name + space dependency
+        tenant-mode: dedicated
+        role-collections:
+          - name: 'RiskManager-${space}'
+            description: Manage Risks
+            role-template-references:
+              - $XSAPPNAME.RiskManager
+          - name: 'RiskViewer-${space}'
+            description: View Risks
+            role-template-references:
+              - $XSAPPNAME.RiskViewer
+
+  - name: CAP_FirstFlight-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+      config:
+        HTML5Runtime_enabled: true
+
+  - name: CAP_FirstFlight-html5-repo-host #SAP HTML5 Application Repository 서비스 인스턴스의 대상. 이를 통해 SAP Launchpad 서비스가 UI 애플리케이션에 액세스 할 수 있음.
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-host
