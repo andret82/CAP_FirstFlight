@@ -1,41 +1,42 @@
----
+## Generated mta.yaml based on template version 0.4.0
+## appName = CAP_FirstFlight
+## language=nodejs; multitenant=false
+## approuter=
 _schema-version: '3.1'
 ID: CAP_FirstFlight
 version: 1.0.0
 description: 'A simple CAP project.'
 parameters:
   enable-parallel-deployments: true
-build-parameters:
-  before-all:
-    - builder: custom
-      commands:
-        - npm install --production
-        - npx -p @sap/cds-dk cds build --production
-        - npx rimraf gen/db/src/gen/data
 
 modules:
+  # --------------------- SERVER MODULE ------------------------
   - name: CAP_FirstFlight-srv
+    # ------------------------------------------------------------
     type: nodejs
     path: gen/srv
     parameters:
       buildpack: nodejs_buildpack
-    build-parameters:
-      builder: npm-ci
+    requires:
+      # Resources extracted from CAP configuration
+      - name: CAP_FirstFlight-db
+      - name: CAP_FirstFlight-uaa
     provides:
       - name: srv-api # required by consumers of CAP services (e.g. approuter)
         properties:
           srv-url: ${default-url}
-    requires:
-      - name: CAP_FirstFlight-db
-      - name: CAP_FirstFlight-uaa
 
+    # -------------------- SIDECAR MODULE ------------------------
   - name: CAP_FirstFlight-db-deployer
+    # ------------------------------------------------------------
     type: hdb
     path: gen/db
     parameters:
       buildpack: nodejs_buildpack
     requires:
+      # 'hana' and 'xsuaa' resources extracted from CAP configuration
       - name: CAP_FirstFlight-db
+      - name: CAP_FirstFlight-uaa
 
   - name: CAP_FirstFlight-destinations
     type: com.sap.application.content
@@ -76,23 +77,20 @@ modules:
       no-source: true
 
 resources:
+  # services extracted from CAP configuration
+  # 'service-plan' can be configured via 'cds.requires.<name>.vcap.plan'
+  # ------------------------------------------------------------
   - name: CAP_FirstFlight-db
+    # ------------------------------------------------------------
     type: com.sap.xs.hdi-container
     parameters:
       service: hana # or 'hanatrial' on trial landscapes
       service-plan: hdi-shared
-
-  # - name: CAP_FirstFlight-auth
-  #   type: org.cloudfoundry.managed-service
-  #   parameters:
-  #     service: xsuaa
-  #     service-plan: application
-  #     path: ./xs-security.json
-  #     config:
-  #       xsappname: CAP_FirstFlight-${org}-${space}
-  #       tenant-mode: dedicated
-
-  - name: CAP_FirstFlight-uaa #XSUAA 서비스 인스턴스의 대상. SAP Launchpad 서비스는 CAP 서비스와 함께 사용할 OAuth 토큰을 변환하는 데 필요함.
+    properties:
+      hdi-service-name: ${service-name}
+  # ------------------------------------------------------------
+  - name: CAP_FirstFlight-uaa
+    # ------------------------------------------------------------
     type: org.cloudfoundry.managed-service
     parameters:
       service: xsuaa
@@ -119,8 +117,16 @@ resources:
       config:
         HTML5Runtime_enabled: true
 
-  - name: CAP_FirstFlight-html5-repo-host #SAP HTML5 Application Repository 서비스 인스턴스의 대상. 이를 통해 SAP Launchpad 서비스가 UI 애플리케이션에 액세스 할 수 있음.
+  - name: CAP_FirstFlight-html5-repo-host
     type: org.cloudfoundry.managed-service
     parameters:
       service: html5-apps-repo
       service-plan: app-host
+
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm install --production
+        - npx -p @sap/cds-dk cds build --production
+        - npx rimraf gen/db/src/gen/data
